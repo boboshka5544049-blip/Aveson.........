@@ -1,4 +1,4 @@
-name: Build AVESON V9 APK
+name: AVESON V9 APK
 
 on:
   workflow_dispatch:
@@ -14,43 +14,66 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Find Android project
-        shell: bash
+      - name: Prepare Android project
         run: |
           set -e
 
-          SETTINGS=$(find . -type f \
-            \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
-            -not -path "./.git/*" \
-            | head -n 1)
+          echo "=== Searching for AVESON Android project ==="
 
-          if [ -z "$SETTINGS" ]; then
-            echo "ERROR: settings.gradle not found."
-            echo "Repository files:"
+          if [ -f "AVESON_V9/android/settings.gradle" ]; then
+            PROJECT_DIR="AVESON_V9/android"
+
+          elif [ -f "android/settings.gradle" ]; then
+            PROJECT_DIR="android"
+
+          else
+            ZIP=$(find . -type f -iname "*.zip" -not -path "./.git/*" | head -n 1)
+
+            if [ -n "$ZIP" ]; then
+              echo "Found ZIP: $ZIP"
+
+              mkdir -p extracted
+              unzip -q -o "$ZIP" -d extracted
+
+              SETTINGS=$(find extracted -type f \
+                -name "settings.gradle" \
+                -not -path "*/.git/*" \
+                | head -n 1)
+
+              if [ -n "$SETTINGS" ]; then
+                PROJECT_DIR=$(dirname "$SETTINGS")
+              fi
+            fi
+          fi
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: Android project not found!"
+            echo "Repository structure:"
             find . -maxdepth 5 -type f \
               -not -path "./.git/*" \
-              | sort | head -300
+              | sort
             exit 1
           fi
-
-          PROJECT_DIR=$(dirname "$SETTINGS")
 
           if [ ! -d "$PROJECT_DIR/app" ]; then
-            echo "ERROR: Android app folder not found:"
-            echo "$PROJECT_DIR/app"
+            echo "ERROR: app folder not found!"
             exit 1
           fi
 
-          echo "Android project: $PROJECT_DIR"
+          echo "================================"
+          echo "ANDROID PROJECT FOUND:"
+          echo "$PROJECT_DIR"
+          echo "================================"
+
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      - name: Set up Java 17
+      - name: Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Gradle 8.9
+      - name: Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
@@ -60,11 +83,12 @@ jobs:
         run: |
           gradle :app:assembleDebug --stacktrace
 
-      - name: Check APK
+      - name: Verify APK
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
+          echo "=== APK ==="
+          ls -lh app/build/outputs/apk/debug/
           test -f app/build/outputs/apk/debug/app-debug.apk
-          ls -lh app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
